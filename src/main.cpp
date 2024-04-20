@@ -1,92 +1,83 @@
 #include <Arduino.h>
-
-#include <WiFi.h>
 #include <Firebase_ESP_Client.h>
 
-/* 1. Define the WiFi credentials */
-#define WIFI_SSID "FdezNet"
-#define WIFI_PASSWORD "FdezNet224"
+// Configuración de WiFi
+#define WIFI_SSID "Venustiano Carranza"
+#define WIFI_PASSWORD "ForaneosUP"
 
-/* 2. Define the API Key */
+// Configuración de Firebase
 #define API_KEY "AIzaSyByKm6mseQCdmZx5aqkLezpzUAEt8imoVk"
-
-/* 3. Define the RTDB URL */
 #define DATABASE_URL "https://multi-debce-default-rtdb.firebaseio.com" 
-
-/* 4. Define the user Email and password that alreadey registerd or added in your project */
 #define USER_EMAIL "arisel583@gmail.com"
 #define USER_PASSWORD "yeremi224"
 
-// Define Firebase Data object
-FirebaseData fbdo;
+// Pines
+const byte ledPin = D4;  // Pin para el LED indicador de alarma
+const byte relay = D5;   // Pin para el relay principal
+const byte relay2 = D6;  // Pin para un segundo relay
+const byte resetPin = D7; // Pin para reiniciar el circuito
 
+// Firebase
+FirebaseData fbdo;
 FirebaseAuth auth;
 FirebaseConfig config;
 
-unsigned long sendDataPrevMillis = 0;
-
-const int ledPin = 4;
-
-void setup()
-{
-  pinMode(ledPin, OUTPUT);
-  digitalWrite(ledPin, LOW);
-
+void setup() {
   Serial.begin(9600);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  pinMode(ledPin, OUTPUT);
+  pinMode(relay, OUTPUT);
+  pinMode(relay2, OUTPUT);
+  pinMode(resetPin, OUTPUT);
 
-  Serial.print("Connecting to Wi-Fi");
-  while (WiFi.status() != WL_CONNECTED)
-  {
+  digitalWrite(ledPin, LOW);
+  digitalWrite(relay, LOW);
+  digitalWrite(relay2, LOW);
+  digitalWrite(resetPin, HIGH);
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
     delay(300);
   }
-  Serial.println();
-  Serial.print("Connected with IP: ");
-  Serial.println(WiFi.localIP());
-  Serial.println();
+  Serial.println("Connected to WiFi");
 
-  /* Assign the api key (required) */
   config.api_key = API_KEY;
-
-  /* Assign the user sign in credentials */
   auth.user.email = USER_EMAIL;
   auth.user.password = USER_PASSWORD;
-
-  /* Assign the RTDB URL (required) */
   config.database_url = DATABASE_URL;
 
-  // Comment or pass false value when WiFi reconnection will control by your code or third party library e.g. WiFiManager
-  Firebase.reconnectNetwork(true);
-
-  // Since v4.4.x, BearSSL engine was used, the SSL buffer need to be set.
-  // Large data transmission may require larger RX buffer, otherwise connection issue or data read time out can be occurred.
-  fbdo.setBSSLBufferSize(4096 /* Rx buffer size in bytes from 512 - 16384 */, 1024 /* Tx buffer size in bytes from 512 - 16384 */);
-
-  // Limit the size of response payload to be collected in FirebaseData
-  fbdo.setResponseSize(2048);
-
   Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+}
 
-  Firebase.setDoubleDigits(5);
+void activatePanicMode() {
+  digitalWrite(relay, HIGH);
+  digitalWrite(relay2, HIGH);
+  for (int i = 0; i < 12; i++) {
+    digitalWrite(ledPin, HIGH);
+    delay(250);
+    digitalWrite(ledPin, LOW);
+    delay(250);
+  }
+  digitalWrite(ledPin, HIGH);
+  Serial.println("LED encendido");
+}
 
-  config.timeout.serverResponse = 10 * 1000;
+void stopPanicMode() {
+  digitalWrite(ledPin, LOW);
+  digitalWrite(relay, LOW);
+  digitalWrite(relay2, LOW);
+  Serial.println("LED apagado");
 }
 
 void loop() {
-  if (Firebase.ready() && (millis() - sendDataPrevMillis > 1000 || sendDataPrevMillis == 0)) {
-    sendDataPrevMillis = millis();
-
-    // Obtiene el valor booleano de isActive en Firebase
-    if (Firebase.RTDB.getBool(&fbdo, "/alarms/1/isActive")) {
-      bool isActive = fbdo.to<bool>(); // Convierte el resultado a booleano
-      digitalWrite(ledPin, !isActive ? LOW : HIGH); // Invierte el estado del LED
-      Serial.print("LED State Updated to: ");
-      Serial.println(!isActive ? "HIGH" : "LOW");
+  if (Firebase.ready() && Firebase.RTDB.getBool(&fbdo, "/alarms/1/isActive")) {
+    bool isActive = fbdo.to<bool>();
+    if (isActive) {
+      activatePanicMode();
     } else {
-      // Imprime el motivo del error si no se puede recuperar el valor
-      Serial.print("Failed to get LED state: ");
-      Serial.println(fbdo.errorReason().c_str());
+      stopPanicMode();
     }
   }
+  delay(1000); // Reduce la carga de la CPU
 }
